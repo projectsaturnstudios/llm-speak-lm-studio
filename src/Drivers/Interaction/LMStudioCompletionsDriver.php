@@ -43,13 +43,14 @@ class LMStudioCompletionsDriver extends ModelCompletionsDriver
 
                         if($all_strings)
                         {
+                            // if all messages are strings, this is a user message
                             $content = array_map(fn(TextOnlyContentMessage $msg) => (new TextObject($msg->content->toValue())) , $message);
                             return MultiTextContentMessage::from([
                                 'role' => ConversationRole::USER->value,
                                 'content' => $content
                             ])->toArray();
                         }
-                        // if all messages are strings, this is a user message
+
 
                     }
                     else
@@ -69,7 +70,7 @@ class LMStudioCompletionsDriver extends ModelCompletionsDriver
                                         'type' => 'function',
                                         'function' => [
                                             'name' => $message->name,
-                                            'arguments' => json_encode($message->args)
+                                            'arguments' =>json_encode(empty($message->args) ? new \stdClass() : $message->args)
                                         ]
                                     ], $message->tool_calls)
                                 ];
@@ -116,21 +117,23 @@ class LMStudioCompletionsDriver extends ModelCompletionsDriver
                     'function' => [
                         'name' => $tool_definition['name'],
                         'description' => $tool_definition['description'],
-                        'parameters' => $tool_definition['inputSchema'],
+                        'parameters' => array_map(function(array $schema) use($tool_definition) {
+                            if(empty($schema['properties'])) $schema['properties'] = new \stdClass();
+                            return $schema;
+                        }, [$tool_definition['inputSchema']])[0],
                     ]
                 ], $neural_model->getTools());
             }
 
             $original = $neural_model->getOriginal();
             // @todo - apply non-standard options from original
-//if(count($results['messages']) > 2) dd($results);
             return array_filter($results, fn($value) => !is_null($value));
         }, $input);
     }
 
     protected function generateCompletion(array $output): array
     {
-        if(!isset($output['id'])) dd($output);
+        //dd($output);
         $results = [
             'id'  => $output['id'],
             'usage' => $output['usage'],
@@ -159,7 +162,7 @@ class LMStudioCompletionsDriver extends ModelCompletionsDriver
                             json_decode($tool_call['function']['arguments'], true),
                             $tool_call['id']
                         ), $choice['message']['tool_calls']),
-                        new TextObject($choice['message']['content']),
+                        $choice['message']['content'] ?? null ? new TextObject($choice['message']['content']) : null,
                         $metadata
                     ));
                 }
